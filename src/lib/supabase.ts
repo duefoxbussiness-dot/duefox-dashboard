@@ -448,6 +448,182 @@ class SupabaseService {
     };
   }
 
+  // Update an existing invoice and its client details
+  public async updateInvoice(id: string, input: NewInvoiceInput): Promise<InvoiceWithClient> {
+    const daysOverdue = calculateDaysOverdue(input.dueDate);
+
+    if (this.client) {
+      try {
+        // 1. Fetch current invoice to know client_id and current status
+        const { data: currentInv } = await this.client
+          .from('invoices')
+          .select('client_id, status, invoice_number, chase_count, created_at')
+          .eq('id', id)
+          .single();
+
+        const clientId = currentInv?.client_id;
+        const currentStatus = currentInv?.status || 'pending';
+        const updatedStatus: InvoiceStatus =
+          currentStatus === 'paid' ? 'paid' : (daysOverdue >= 30 ? 'escalated' : 'pending');
+
+        let clientRecord: Client;
+
+        if (clientId) {
+          // Update client in clients table
+          const { data: updatedClient } = await this.client
+            .from('clients')
+            .update({
+              name: input.clientName.trim(),
+              email: input.email.trim().toLowerCase(),
+              phone: input.phone.trim(),
+              company: input.company?.trim() || '',
+            })
+            .eq('id', clientId)
+            .select()
+            .single();
+
+          clientRecord = updatedClient || {
+            id: clientId,
+            name: input.clientName.trim(),
+            email: input.email.trim().toLowerCase(),
+            phone: input.phone.trim(),
+            company: input.company?.trim(),
+            created_at: new Date().toISOString(),
+          };
+        } else {
+          clientRecord = {
+            id: `c-${Date.now()}`,
+            name: input.clientName.trim(),
+            email: input.email.trim().toLowerCase(),
+            phone: input.phone.trim(),
+            company: input.company?.trim(),
+            created_at: new Date().toISOString(),
+          };
+        }
+
+        // Update invoice in invoices table
+        const { data: updatedInv, error: invError } = await this.client
+          .from('invoices')
+          .update({
+            amount: Number(input.amount),
+            currency: input.currency,
+            due_date: input.dueDate,
+            status: updatedStatus,
+            payment_link: input.paymentLink?.trim() || null,
+            chase_schedule: input.chaseSchedule || 'standard',
+            notes: input.notes?.trim() || '',
+          })
+          .eq('id', id)
+          .select()
+          .single();
+
+        if (invError) {
+          throw invError;
+        }
+
+        const result: InvoiceWithClient = {
+          id,
+          client_id: clientId || clientRecord.id,
+          invoice_number: updatedInv?.invoice_number || currentInv?.invoice_number || `INV-${id.substring(0, 6)}`,
+          amount: Number(updatedInv?.amount ?? input.amount),
+          currency: updatedInv?.currency || input.currency,
+          due_date: updatedInv?.due_date || input.dueDate,
+          status: updatedInv?.status || updatedStatus,
+          payment_link: updatedInv?.payment_link || input.paymentLink,
+          chase_count: updatedInv?.chase_count ?? (currentInv?.chase_count || 0),
+          last_chased_at: updatedInv?.last_chased_at,
+          chase_schedule: updatedInv?.chase_schedule || input.chaseSchedule || 'standard',
+          notes: updatedInv?.notes ?? input.notes,
+          created_at: updatedInv?.created_at || currentInv?.created_at || new Date().toISOString(),
+          client: clientRecord,
+          days_overdue: daysOverdue,
+        };
+
+        // Also update local storage to keep state mirrored
+        this.updateLocalInvoiceAndClient(id, input, result);
+
+        localEventTarget.dispatchEvent(new Event(LOCAL_CHANGE_EVENT));
+        return result;
+      } catch (err) {
+        console.warn('Supabase update failed, falling back to local store:', err);
+      }
+    }
+
+    // Local fallback update
+    return this.updateLocalInvoiceAndClient(id, input);
+  }
+
+  private updateLocalInvoiceAndClient(
+    id: string,
+    input: NewInvoiceInput,
+    exactResult?: InvoiceWithClient
+  ): InvoiceWithClient {
+    const rawClients = localStorage.getItem(LOCAL_CLIENTS_KEY);
+    const rawInvoices = localStorage.getItem(LOCAL_INVOICES_KEY);
+
+    const clients: Client[] = rawClients ? JSON.parse(rawClients) : [...INITIAL_CLIENTS];
+    const invoices: Invoice[] = rawInvoices ? JSON.parse(rawInvoices) : [...INITIAL_INVOICES];
+
+    const invIndex = invoices.findIndex((i) => i.id === id);
+    const existingInv = invIndex >= 0 ? invoices[invIndex] : null;
+
+    const daysOverdue = calculateDaysOverdue(input.dueDate);
+    const currentStatus = existingInv?.status || 'pending';
+    const resolvedStatus: InvoiceStatus =
+      currentStatus === 'paid' ? 'paid' : (daysOverdue >= 30 ? 'escalated' : 'pending');
+
+    let client = clients.find((c) => c.id === existingInv?.client_id);
+    if (client) {
+      client.name = input.clientName.trim();
+      client.email = input.email.trim().toLowerCase();
+      client.phone = input.phone.trim();
+      client.company = input.company?.trim();
+    } else {
+      client = {
+        id: existingInv?.client_id || `c-${Date.now()}`,
+        name: input.clientName.trim(),
+        email: input.email.trim().toLowerCase(),
+        phone: input.phone.trim(),
+        company: input.company?.trim(),
+        created_at: new Date().toISOString(),
+      };
+      clients.push(client);
+    }
+
+    const updatedInvoice: Invoice = {
+      ...(existingInv || {
+        id,
+        invoice_number: `INV-${new Date().getFullYear()}-001`,
+        chase_count: 0,
+        created_at: new Date().toISOString(),
+      }),
+      client_id: client.id,
+      amount: Number(input.amount),
+      currency: input.currency,
+      due_date: input.dueDate,
+      status: resolvedStatus,
+      payment_link: input.paymentLink?.trim() || existingInv?.payment_link,
+      chase_schedule: input.chaseSchedule || 'standard',
+      notes: input.notes?.trim() || '',
+    };
+
+    if (invIndex >= 0) {
+      invoices[invIndex] = updatedInvoice;
+    } else {
+      invoices.unshift(updatedInvoice);
+    }
+
+    localStorage.setItem(LOCAL_CLIENTS_KEY, JSON.stringify(clients));
+    localStorage.setItem(LOCAL_INVOICES_KEY, JSON.stringify(invoices));
+    localEventTarget.dispatchEvent(new Event(LOCAL_CHANGE_EVENT));
+
+    return exactResult || {
+      ...updatedInvoice,
+      client,
+      days_overdue: daysOverdue,
+    };
+  }
+
   // Update status (e.g. mark paid or reopen)
   public async updateInvoiceStatus(id: string, status: InvoiceStatus): Promise<void> {
     if (this.client) {

@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Building,
   Filter,
+  Pencil,
 } from 'lucide-react';
 import { CurrencyCode, InvoiceStatus, InvoiceWithClient } from '../types';
 
@@ -19,6 +20,7 @@ interface InvoiceTableProps {
   invoices: InvoiceWithClient[];
   loading: boolean;
   onMarkPaid: (id: string, newStatus: InvoiceStatus) => Promise<void>;
+  onEdit: (invoice: InvoiceWithClient) => void;
   onDelete: (id: string) => Promise<void>;
   onOpenChaseModal: (invoice: InvoiceWithClient) => void;
   onOpenAddModal: () => void;
@@ -29,6 +31,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
   invoices,
   loading,
   onMarkPaid,
+  onEdit,
   onDelete,
   onOpenChaseModal,
   onOpenAddModal,
@@ -296,6 +299,14 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                               </>
                             )}
                           </div>
+                          {inv.notes && (
+                            <p
+                              className="text-[11px] text-slate-500 truncate max-w-[200px] mt-0.5"
+                              title={inv.notes}
+                            >
+                              <span className="font-medium text-slate-600">Work:</span> {inv.notes}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -414,6 +425,17 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                           ) : (
                             <Copy className="w-3.5 h-3.5" />
                           )}
+                        </button>
+
+                        {/* Edit Button next to Mark Paid */}
+                        <button
+                          type="button"
+                          onClick={() => onEdit(inv)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-neutral-100 hover:bg-neutral-200 border border-neutral-200/80 rounded-md transition-colors cursor-pointer"
+                          title="Edit invoice details and notes"
+                        >
+                          <Pencil className="w-3 h-3 text-slate-600" />
+                          <span>Edit</span>
                         </button>
 
                         {/* Mark Paid / Reopen Button */}

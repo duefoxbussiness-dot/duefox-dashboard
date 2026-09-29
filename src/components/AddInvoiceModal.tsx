@@ -1,18 +1,21 @@
-import React, { useState } from 'react';
-import { X, Calendar, DollarSign, Mail, Phone, User, Link as LinkIcon, Building2, Clock, Sparkles } from 'lucide-react';
-import { CurrencyCode, NewInvoiceInput } from '../types';
+import React, { useState, useEffect } from 'react';
+import { X, Calendar, DollarSign, Mail, Phone, User, Link as LinkIcon, Building2, Clock, Sparkles, FileText, Pencil } from 'lucide-react';
+import { CurrencyCode, InvoiceWithClient, NewInvoiceInput } from '../types';
 
 interface AddInvoiceModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: NewInvoiceInput) => Promise<void>;
+  initialInvoice?: InvoiceWithClient | null;
 }
 
 export const AddInvoiceModal: React.FC<AddInvoiceModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
+  initialInvoice,
 }) => {
+  const isEditing = Boolean(initialInvoice);
   const [clientName, setClientName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -31,6 +34,37 @@ export const AddInvoiceModal: React.FC<AddInvoiceModalProps> = ({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (initialInvoice) {
+        setClientName(initialInvoice.client.name || '');
+        setEmail(initialInvoice.client.email || '');
+        setPhone(initialInvoice.client.phone || '');
+        setCompany(initialInvoice.client.company || '');
+        setAmount(String(initialInvoice.amount));
+        setCurrency(initialInvoice.currency);
+        setDueDate(initialInvoice.due_date);
+        setPaymentLink(initialInvoice.payment_link || '');
+        setChaseSchedule(initialInvoice.chase_schedule || 'standard');
+        setNotes(initialInvoice.notes || '');
+      } else {
+        setClientName('');
+        setEmail('');
+        setPhone('');
+        setCompany('');
+        setAmount('');
+        setCurrency('USD');
+        const d = new Date();
+        d.setDate(d.getDate() + 7);
+        setDueDate(d.toISOString().split('T')[0]);
+        setPaymentLink('');
+        setChaseSchedule('standard');
+        setNotes('');
+      }
+      setError(null);
+    }
+  }, [isOpen, initialInvoice]);
 
   if (!isOpen) return null;
 
@@ -106,13 +140,22 @@ export const AddInvoiceModal: React.FC<AddInvoiceModalProps> = ({
       >
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 bg-neutral-50/70">
-          <div>
-            <h2 id="modal-title" className="text-lg font-bold text-slate-900">
-              Add New Invoice
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Enter invoice & client details for automated tracking & chasing.
-            </p>
+          <div className="flex items-center gap-2.5">
+            {isEditing && (
+              <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center shrink-0">
+                <Pencil className="w-4 h-4" />
+              </div>
+            )}
+            <div>
+              <h2 id="modal-title" className="text-lg font-bold text-slate-900">
+                {isEditing ? `Edit Invoice (${initialInvoice!.invoice_number})` : 'Add New Invoice'}
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {isEditing
+                  ? 'Update client details, invoice amount, due date, and work description.'
+                  : 'Enter invoice & client details for automated tracking & chasing.'}
+              </p>
+            </div>
           </div>
           <button
             type="button"
@@ -329,6 +372,26 @@ export const AddInvoiceModal: React.FC<AddInvoiceModalProps> = ({
               </p>
             </div>
 
+            {/* Invoice Notes / Description */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Invoice Notes / Description
+              </label>
+              <div className="relative">
+                <FileText className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Q3 Software development sprint, design deliverables, website migration..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-neutral-300 rounded-lg text-slate-900 placeholder:text-neutral-400 focus:outline-none focus:border-slate-800 focus:ring-1 focus:ring-slate-800 resize-none"
+                />
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Specify what work this invoice is for (included in invoice records and chase messages).
+              </p>
+            </div>
+
             {/* Chase Cadence Schedule */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
@@ -390,7 +453,7 @@ export const AddInvoiceModal: React.FC<AddInvoiceModalProps> = ({
               className="px-4 py-2 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 active:bg-slate-950 rounded-lg shadow-xs transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-2"
             >
               {loading && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-              <span>Create Invoice & Schedule Chase</span>
+              <span>{isEditing ? 'Update Invoice' : 'Create Invoice & Schedule Chase'}</span>
             </button>
           </div>
         </form>

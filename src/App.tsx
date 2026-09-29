@@ -23,6 +23,7 @@ export default function App() {
 
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingInvoice, setEditingInvoice] = useState<InvoiceWithClient | null>(null);
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [chaseInvoice, setChaseInvoice] = useState<InvoiceWithClient | null>(null);
 
@@ -116,19 +117,46 @@ export default function App() {
     };
   }, [invoices]);
 
-  // Handler: Add New Invoice
-  const handleAddInvoice = async (input: NewInvoiceInput) => {
-    try {
-      const created = await supabaseService.insertInvoice(input);
-      setInvoices((prev) => [created, ...prev]);
-      addToast(
-        'success',
-        `Invoice ${created.invoice_number} created`,
-        `Client: ${created.client.name} · Automated chase schedule initialized`
-      );
-    } catch (err: any) {
-      addToast('error', 'Failed to create invoice', err?.message || 'Database insert failed');
-      throw err;
+  const handleOpenAddModal = () => {
+    setEditingInvoice(null);
+    setIsAddModalOpen(true);
+  };
+
+  const handleOpenEditModal = (invoice: InvoiceWithClient) => {
+    setEditingInvoice(invoice);
+    setIsAddModalOpen(true);
+  };
+
+  // Handler: Save Invoice (Create or Update in Supabase)
+  const handleSaveInvoice = async (input: NewInvoiceInput) => {
+    if (editingInvoice) {
+      try {
+        const updated = await supabaseService.updateInvoice(editingInvoice.id, input);
+        setInvoices((prev) =>
+          prev.map((inv) => (inv.id === editingInvoice.id ? updated : inv))
+        );
+        addToast(
+          'success',
+          `Invoice ${updated.invoice_number} updated`,
+          `Updated details saved in Supabase for ${updated.client.name}`
+        );
+      } catch (err: any) {
+        addToast('error', 'Failed to update invoice', err?.message || 'Database update failed');
+        throw err;
+      }
+    } else {
+      try {
+        const created = await supabaseService.insertInvoice(input);
+        setInvoices((prev) => [created, ...prev]);
+        addToast(
+          'success',
+          `Invoice ${created.invoice_number} created`,
+          `Client: ${created.client.name} · Automated chase schedule initialized`
+        );
+      } catch (err: any) {
+        addToast('error', 'Failed to create invoice', err?.message || 'Database insert failed');
+        throw err;
+      }
     }
   };
 
@@ -238,7 +266,7 @@ export default function App() {
     <div className="min-h-screen bg-neutral-50 text-slate-900 flex flex-col font-sans">
       {/* Top Header */}
       <Header
-        onOpenAddModal={() => setIsAddModalOpen(true)}
+        onOpenAddModal={handleOpenAddModal}
         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
         onTriggerBatchChase={handleBatchChase}
         supabaseConfig={supabaseConfig}
@@ -291,9 +319,10 @@ export default function App() {
               invoices={invoices}
               loading={loading}
               onMarkPaid={handleMarkPaid}
+              onEdit={handleOpenEditModal}
               onDelete={handleDeleteInvoice}
               onOpenChaseModal={(inv) => setChaseInvoice(inv)}
-              onOpenAddModal={() => setIsAddModalOpen(true)}
+              onOpenAddModal={handleOpenAddModal}
               selectedCurrency={selectedCurrency}
             />
           </div>
@@ -332,8 +361,12 @@ export default function App() {
       {/* Modals */}
       <AddInvoiceModal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onSubmit={handleAddInvoice}
+        onClose={() => {
+          setIsAddModalOpen(false);
+          setEditingInvoice(null);
+        }}
+        initialInvoice={editingInvoice}
+        onSubmit={handleSaveInvoice}
       />
 
       <ChasePreviewModal
