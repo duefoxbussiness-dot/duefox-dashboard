@@ -19,7 +19,7 @@ export const TrialModal: React.FC<TrialModalProps> = ({ isOpen, onClose, selecte
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
-    setSubmitted(true);
+    window.location.href = '/dashboard';
   };
 
   const handleResetAndClose = () => {
