@@ -1,6 +1,6 @@
 {
-  "name": "dueFox.co - Automated Invoice Chasing Dashboard",
-  "description": "Minimalist automated invoice chasing dashboard for dueFox.co to track overdue payments, manage clients, and recover revenue.",
+  "name": "DueFox - Automated B2B Invoice Chasing & Global Collections",
+  "description": "Automate your B2B invoice chasing via intelligent Email & WhatsApp cadences. Collect global payments effortlessly with SWIFT, IBAN, and Stripe.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
