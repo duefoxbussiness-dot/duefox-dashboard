@@ -1,14 +1,23 @@
 import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
-import { Client, Invoice, InvoiceWithClient, NewInvoiceInput, SupabaseConfig, InvoiceStatus } from '../types';
+import { Client, Invoice, InvoiceWithClient, NewInvoiceInput, SupabaseConfig, InvoiceStatus, AuthUser } from '../types';
 import { INITIAL_CLIENTS, INITIAL_INVOICES } from './initialData';
 
 const CONFIG_STORAGE_KEY = 'duefox_supabase_config_v1';
 const LOCAL_CLIENTS_KEY = 'duefox_local_clients_v1';
 const LOCAL_INVOICES_KEY = 'duefox_local_invoices_v1';
+const LOCAL_AUTH_KEY = 'duefox_auth_session_v1';
+
+export const DEMO_USER: AuthUser = {
+  id: 'usr-duefox-demo-01',
+  email: 'duefoxbussiness@gmail.com',
+  name: 'DueFox Operations',
+  created_at: '2026-09-01T00:00:00Z',
+};
 
 // Event bus for local real-time synchronization across tabs and within app
 const localEventTarget = new EventTarget();
 const LOCAL_CHANGE_EVENT = 'duefox_db_change';
+const AUTH_CHANGE_EVENT = 'duefox_auth_change';
 
 // Calculate days overdue based on today
 export function calculateDaysOverdue(dueDateStr: string): number {
@@ -63,7 +72,10 @@ class SupabaseService {
     if (targetUrl && targetKey && targetUrl.startsWith('http') && targetKey.length > 20) {
       try {
         this.client = createClient(targetUrl, targetKey, {
-          auth: { persistSession: false },
+          auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+          },
         });
         this.config = {
           url: targetUrl,
@@ -88,6 +100,188 @@ class SupabaseService {
 
     // Ensure local seed data exists if in local mode
     this.ensureLocalSeedData();
+  }
+
+  // Authentication: Sign In
+  public async signIn(email: string, password: string): Promise<{ user: AuthUser | null; error?: string }> {
+    const trimmedEmail = email.trim().toLowerCase();
+
+    // If connected to Supabase and not a quick demo override
+    if (this.client) {
+      try {
+        const { data, error } = await this.client.auth.signInWithPassword({
+          email: trimmedEmail,
+          password,
+        });
+
+        if (error) {
+          // If custom Supabase returned error, return error message
+          return { user: null, error: error.message };
+        }
+
+        if (data?.user) {
+          const authUser: AuthUser = {
+            id: data.user.id,
+            email: data.user.email || trimmedEmail,
+            name: data.user.user_metadata?.full_name || trimmedEmail.split('@')[0],
+            created_at: data.user.created_at,
+          };
+          localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(authUser));
+          localEventTarget.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
+          return { user: authUser };
+        }
+      } catch (err: any) {
+        return { user: null, error: err?.message || 'Authentication error' };
+      }
+    }
+
+    // Local / Demo Authentication Fallback
+    if (password.length < 4) {
+      return { user: null, error: 'Password must be at least 4 characters long' };
+    }
+
+    const authUser: AuthUser = {
+      id: trimmedEmail === DEMO_USER.email.toLowerCase() ? DEMO_USER.id : `usr-${Date.now()}`,
+      email: trimmedEmail,
+      name: trimmedEmail === DEMO_USER.email.toLowerCase() ? DEMO_USER.name : trimmedEmail.split('@')[0],
+      created_at: new Date().toISOString(),
+    };
+
+    localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(authUser));
+    localEventTarget.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
+    return { user: authUser };
+  }
+
+  // Authentication: Sign Up
+  public async signUp(email: string, password: string, fullName?: string): Promise<{ user: AuthUser | null; error?: string; message?: string }> {
+    const trimmedEmail = email.trim().toLowerCase();
+
+    if (this.client) {
+      try {
+        const { data, error } = await this.client.auth.signUp({
+          email: trimmedEmail,
+          password,
+          options: {
+            data: { full_name: fullName?.trim() },
+          },
+        });
+
+        if (error) {
+          return { user: null, error: error.message };
+        }
+
+        if (data?.user) {
+          const authUser: AuthUser = {
+            id: data.user.id,
+            email: data.user.email || trimmedEmail,
+            name: fullName?.trim() || data.user.user_metadata?.full_name || trimmedEmail.split('@')[0],
+            created_at: data.user.created_at,
+          };
+          localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(authUser));
+          localEventTarget.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
+          return { user: authUser, message: 'Account registered successfully!' };
+        }
+      } catch (err: any) {
+        return { user: null, error: err?.message || 'Failed to create account' };
+      }
+    }
+
+    // Local / Demo Sign Up
+    if (password.length < 6) {
+      return { user: null, error: 'Password must be at least 6 characters' };
+    }
+
+    const authUser: AuthUser = {
+      id: `usr-${Date.now()}`,
+      email: trimmedEmail,
+      name: fullName?.trim() || trimmedEmail.split('@')[0],
+      created_at: new Date().toISOString(),
+    };
+
+    localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(authUser));
+    localEventTarget.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
+    return { user: authUser, message: 'Account created successfully!' };
+  }
+
+  // Authentication: Sign Out
+  public async signOut(): Promise<void> {
+    if (this.client) {
+      try {
+        await this.client.auth.signOut();
+      } catch (err) {
+        console.warn('Supabase sign out error:', err);
+      }
+    }
+
+    localStorage.removeItem(LOCAL_AUTH_KEY);
+    localEventTarget.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
+  }
+
+  // Authentication: Get Current Logged-in User
+  public async getUser(): Promise<AuthUser | null> {
+    if (this.client) {
+      try {
+        const { data } = await this.client.auth.getUser();
+        if (data?.user) {
+          const authUser: AuthUser = {
+            id: data.user.id,
+            email: data.user.email || '',
+            name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0],
+            created_at: data.user.created_at,
+          };
+          localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(authUser));
+          return authUser;
+        }
+      } catch (err) {
+        // Fall back to local session
+      }
+    }
+
+    try {
+      const stored = localStorage.getItem(LOCAL_AUTH_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch {}
+
+    return null;
+  }
+
+  // Authentication: Listen to Auth Changes
+  public onAuthChange(callback: (user: AuthUser | null) => void): () => void {
+    const handleAuthEvent = () => {
+      this.getUser().then(callback);
+    };
+
+    localEventTarget.addEventListener(AUTH_CHANGE_EVENT, handleAuthEvent);
+
+    let supabaseSub: any = null;
+    if (this.client) {
+      try {
+        const { data } = this.client.auth.onAuthStateChange((_event, session) => {
+          if (session?.user) {
+            const authUser: AuthUser = {
+              id: session.user.id,
+              email: session.user.email || '',
+              name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
+              created_at: session.user.created_at,
+            };
+            localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(authUser));
+            callback(authUser);
+          } else {
+            callback(null);
+          }
+        });
+        supabaseSub = data?.subscription;
+      } catch {}
+    }
+
+    return () => {
+      localEventTarget.removeEventListener(AUTH_CHANGE_EVENT, handleAuthEvent);
+      if (supabaseSub) {
+        supabaseSub.unsubscribe();
+      }
+    };
   }
 
   private ensureLocalSeedData() {
@@ -160,11 +354,11 @@ class SupabaseService {
   }
 
   // Fetch all invoices combined with client info
-  public async fetchClientsAndInvoices(): Promise<InvoiceWithClient[]> {
+  public async fetchClientsAndInvoices(userId?: string): Promise<InvoiceWithClient[]> {
     if (this.client) {
       try {
-        // First try joined query
-        const { data, error } = await this.client
+        // First try joined query with user_id filtering if user is authenticated
+        let query = this.client
           .from('invoices')
           .select(`
             *,
@@ -172,36 +366,26 @@ class SupabaseService {
           `)
           .order('created_at', { ascending: false });
 
-        if (!error && data) {
-          return data.map((row: any) => {
-            const clientData = row.clients || {
-              id: row.client_id,
-              name: 'Unknown Client',
-              email: 'unknown@client.com',
-              phone: '',
-              created_at: row.created_at,
-            };
-            const daysOverdue = calculateDaysOverdue(row.due_date);
-            const status = row.status === 'paid' ? 'paid' : (daysOverdue >= 30 ? 'escalated' : row.status || 'pending');
+        if (userId) {
+          try {
+            const userSpecific = await this.client
+              .from('invoices')
+              .select(`*, clients:client_id (*)`)
+              .eq('user_id', userId)
+              .order('created_at', { ascending: false });
 
-            return {
-              id: row.id,
-              client_id: row.client_id,
-              invoice_number: row.invoice_number || `INV-${row.id.substring(0, 6)}`,
-              amount: Number(row.amount),
-              currency: row.currency || 'USD',
-              due_date: row.due_date,
-              status,
-              payment_link: row.payment_link,
-              chase_count: Number(row.chase_count || 0),
-              last_chased_at: row.last_chased_at,
-              chase_schedule: row.chase_schedule || 'standard',
-              notes: row.notes,
-              created_at: row.created_at,
-              client: clientData,
-              days_overdue: daysOverdue,
-            };
-          });
+            if (!userSpecific.error && userSpecific.data && userSpecific.data.length > 0) {
+              return this.mapSupabaseInvoiceRows(userSpecific.data);
+            }
+          } catch (filterErr) {
+            console.info('user_id filter fallback to public read:', filterErr);
+          }
+        }
+
+        const { data, error } = await query;
+
+        if (!error && data) {
+          return this.mapSupabaseInvoiceRows(data);
         }
 
         // If joined query failed (e.g. FK not named clients or separate tables), query separately
@@ -214,9 +398,15 @@ class SupabaseService {
           const clientMap = new Map<string, Client>();
           (clientsRes.data || []).forEach((c: any) => clientMap.set(c.id, c));
 
-          return invoicesRes.data.map((inv: any) => {
+          let rows = invoicesRes.data;
+          if (userId && rows.some((r: any) => r.user_id === userId)) {
+            rows = rows.filter((r: any) => r.user_id === userId);
+          }
+
+          return rows.map((inv: any) => {
             const client = clientMap.get(inv.client_id) || {
               id: inv.client_id,
+              user_id: inv.user_id,
               name: 'Unknown Client',
               email: 'unknown@client.com',
               phone: '',
@@ -227,6 +417,7 @@ class SupabaseService {
 
             return {
               id: inv.id,
+              user_id: inv.user_id,
               client_id: inv.client_id,
               invoice_number: inv.invoice_number || `INV-${inv.id.substring(0, 6)}`,
               amount: Number(inv.amount),
@@ -250,17 +441,59 @@ class SupabaseService {
     }
 
     // Fallback to local synced storage
-    return this.getLocalClientsAndInvoices();
+    return this.getLocalClientsAndInvoices(userId);
   }
 
-  private getLocalClientsAndInvoices(): InvoiceWithClient[] {
+  private mapSupabaseInvoiceRows(data: any[]): InvoiceWithClient[] {
+    return data.map((row: any) => {
+      const clientData = row.clients || {
+        id: row.client_id,
+        user_id: row.user_id,
+        name: 'Unknown Client',
+        email: 'unknown@client.com',
+        phone: '',
+        created_at: row.created_at,
+      };
+      const daysOverdue = calculateDaysOverdue(row.due_date);
+      const status = row.status === 'paid' ? 'paid' : (daysOverdue >= 30 ? 'escalated' : row.status || 'pending');
+
+      return {
+        id: row.id,
+        user_id: row.user_id,
+        client_id: row.client_id,
+        invoice_number: row.invoice_number || `INV-${row.id.substring(0, 6)}`,
+        amount: Number(row.amount),
+        currency: row.currency || 'USD',
+        due_date: row.due_date,
+        status,
+        payment_link: row.payment_link,
+        chase_count: Number(row.chase_count || 0),
+        last_chased_at: row.last_chased_at,
+        chase_schedule: row.chase_schedule || 'standard',
+        notes: row.notes,
+        created_at: row.created_at,
+        client: clientData,
+        days_overdue: daysOverdue,
+      };
+    });
+  }
+
+  private getLocalClientsAndInvoices(userId?: string): InvoiceWithClient[] {
     try {
       this.ensureLocalSeedData();
       const rawClients = localStorage.getItem(LOCAL_CLIENTS_KEY);
       const rawInvoices = localStorage.getItem(LOCAL_INVOICES_KEY);
 
       const clients: Client[] = rawClients ? JSON.parse(rawClients) : INITIAL_CLIENTS;
-      const invoices: Invoice[] = rawInvoices ? JSON.parse(rawInvoices) : INITIAL_INVOICES;
+      let invoices: Invoice[] = rawInvoices ? JSON.parse(rawInvoices) : INITIAL_INVOICES;
+
+      // If user has specific invoices in local store, prioritize them, else show demo set
+      if (userId) {
+        const userMatches = invoices.filter((i) => i.user_id === userId);
+        if (userMatches.length > 0) {
+          invoices = userMatches;
+        }
+      }
 
       const clientMap = new Map<string, Client>();
       clients.forEach((c) => clientMap.set(c.id, c));
@@ -268,6 +501,7 @@ class SupabaseService {
       return invoices.map((inv) => {
         const client = clientMap.get(inv.client_id) || {
           id: inv.client_id,
+          user_id: inv.user_id,
           name: 'Client',
           email: 'client@example.com',
           phone: '',
@@ -288,8 +522,8 @@ class SupabaseService {
     }
   }
 
-  // Insert a new invoice with client handling
-  public async insertInvoice(input: NewInvoiceInput): Promise<InvoiceWithClient> {
+  // Insert a new invoice with client handling and user_id association
+  public async insertInvoice(input: NewInvoiceInput, userId?: string): Promise<InvoiceWithClient> {
     const nowIso = new Date().toISOString();
     const daysOverdue = calculateDaysOverdue(input.dueDate);
     const initialStatus: InvoiceStatus = daysOverdue >= 30 ? 'escalated' : 'pending';
@@ -316,12 +550,13 @@ class SupabaseService {
               name: input.clientName.trim(),
               phone: input.phone.trim(),
               company: input.company?.trim(),
+              ...(userId ? { user_id: userId } : {}),
             })
             .eq('id', clientId);
         } else {
           // Insert client
           const newClientId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `c-${Date.now()}`;
-          const newClient = {
+          const newClient: any = {
             id: newClientId,
             name: input.clientName.trim(),
             email: input.email.trim().toLowerCase(),
@@ -329,6 +564,9 @@ class SupabaseService {
             company: input.company?.trim() || '',
             created_at: nowIso,
           };
+          if (userId) {
+            newClient.user_id = userId;
+          }
           const { data: createdClient, error: clientError } = await this.client
             .from('clients')
             .insert(newClient)
@@ -347,7 +585,7 @@ class SupabaseService {
         const invoiceNumber = `INV-${new Date().getFullYear()}-${randomNum}`;
         const newInvoiceId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `inv-${Date.now()}`;
 
-        const invoiceToInsert = {
+        const invoiceToInsert: any = {
           id: newInvoiceId,
           client_id: clientId,
           invoice_number: invoiceNumber,
@@ -362,6 +600,10 @@ class SupabaseService {
           created_at: nowIso,
         };
 
+        if (userId) {
+          invoiceToInsert.user_id = userId;
+        }
+
         const { data: createdInvoice, error: invError } = await this.client
           .from('invoices')
           .insert(invoiceToInsert)
@@ -374,6 +616,7 @@ class SupabaseService {
 
         return {
           id: createdInvoice.id,
+          user_id: createdInvoice.user_id || userId,
           client_id: clientId,
           invoice_number: invoiceNumber,
           amount: Number(createdInvoice.amount),
@@ -405,6 +648,7 @@ class SupabaseService {
     if (!client) {
       client = {
         id: `c-${Date.now()}`,
+        user_id: userId,
         name: input.clientName.trim(),
         email: input.email.trim().toLowerCase(),
         phone: input.phone.trim(),
@@ -415,6 +659,7 @@ class SupabaseService {
     } else {
       client.name = input.clientName.trim();
       client.phone = input.phone.trim();
+      if (userId) client.user_id = userId;
       if (input.company) client.company = input.company.trim();
     }
 
@@ -422,6 +667,7 @@ class SupabaseService {
     const invoiceNumber = `INV-${new Date().getFullYear()}-${randomNum}`;
     const newInvoice: Invoice = {
       id: `inv-${Date.now()}`,
+      user_id: userId,
       client_id: client.id,
       invoice_number: invoiceNumber,
       amount: Number(input.amount),
@@ -449,7 +695,7 @@ class SupabaseService {
   }
 
   // Update an existing invoice and its client details
-  public async updateInvoice(id: string, input: NewInvoiceInput): Promise<InvoiceWithClient> {
+  public async updateInvoice(id: string, input: NewInvoiceInput, userId?: string): Promise<InvoiceWithClient> {
     const daysOverdue = calculateDaysOverdue(input.dueDate);
 
     if (this.client) {
@@ -457,7 +703,7 @@ class SupabaseService {
         // 1. Fetch current invoice to know client_id and current status
         const { data: currentInv } = await this.client
           .from('invoices')
-          .select('client_id, status, invoice_number, chase_count, created_at')
+          .select('client_id, status, invoice_number, chase_count, created_at, user_id')
           .eq('id', id)
           .single();
 
@@ -778,6 +1024,7 @@ class SupabaseService {
 -- 1. Create Clients Table
 CREATE TABLE IF NOT EXISTS public.clients (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
   phone TEXT,
@@ -788,6 +1035,7 @@ CREATE TABLE IF NOT EXISTS public.clients (
 -- 2. Create Invoices Table
 CREATE TABLE IF NOT EXISTS public.invoices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID,
   client_id UUID NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
   invoice_number TEXT NOT NULL,
   amount NUMERIC(12, 2) NOT NULL,
@@ -803,6 +1051,7 @@ CREATE TABLE IF NOT EXISTS public.invoices (
 );
 
 -- 3. Create Indexes for High Performance Queries
+CREATE INDEX IF NOT EXISTS idx_invoices_user_id ON public.invoices(user_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_client_id ON public.invoices(client_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_status ON public.invoices(status);
 CREATE INDEX IF NOT EXISTS idx_invoices_due_date ON public.invoices(due_date);

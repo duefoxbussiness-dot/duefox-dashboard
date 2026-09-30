@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { supabaseService, calculateDaysOverdue } from './lib/supabase';
+import { supabaseService } from './lib/supabase';
 import {
+  AuthUser,
   CurrencyCode,
   DashboardStats,
   InvoiceStatus,
   InvoiceWithClient,
   NewInvoiceInput,
   SupabaseConfig,
+  ThemeMode,
 } from './types';
 import { Header } from './components/Header';
 import { StatCards } from './components/StatCards';
@@ -14,14 +16,29 @@ import { InvoiceTable } from './components/InvoiceTable';
 import { AddInvoiceModal } from './components/AddInvoiceModal';
 import { ChasePreviewModal } from './components/ChasePreviewModal';
 import { SupabaseConfigModal } from './components/SupabaseConfigModal';
+import { AuthView } from './components/AuthView';
 import { ToastContainer, ToastMessage } from './components/Toast';
 
 export default function App() {
+  // Theme Mode (Default: Modern Dark Slate matching email template)
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    try {
+      const stored = localStorage.getItem('duefox_theme') as ThemeMode;
+      if (stored === 'dark' || stored === 'light') return stored;
+    } catch {}
+    return 'dark';
+  });
+
+  // Supabase Authentication state
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Invoices & Dashboard data state
   const [invoices, setInvoices] = useState<InvoiceWithClient[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCurrency, setSelectedCurrency] = useState<'ALL' | CurrencyCode>('ALL');
 
-  // Modals
+  // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<InvoiceWithClient | null>(null);
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
@@ -44,11 +61,58 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Fetch data
+  // Sync theme with document element and persistence
+  useEffect(() => {
+    try {
+      localStorage.setItem('duefox_theme', theme);
+    } catch {}
+
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.body.style.backgroundColor = '#0F172A';
+      document.body.style.color = '#F8FAFC';
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.setAttribute('data-theme', 'light');
+      document.body.style.backgroundColor = '#F8FAFC';
+      document.body.style.color = '#0F172A';
+    }
+  }, [theme]);
+
+  const handleToggleTheme = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
+  // Check auth session on startup
+  useEffect(() => {
+    let mounted = true;
+
+    supabaseService.getUser().then((user) => {
+      if (mounted) {
+        setCurrentUser(user);
+        setAuthLoading(false);
+      }
+    });
+
+    const unsubscribe = supabaseService.onAuthChange((user) => {
+      if (mounted) {
+        setCurrentUser(user);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, []);
+
+  // Fetch invoices filtered by authenticated user_id
   const loadData = useCallback(async () => {
+    if (!currentUser) return;
     try {
       setLoading(true);
-      const data = await supabaseService.fetchClientsAndInvoices();
+      const data = await supabaseService.fetchClientsAndInvoices(currentUser.id);
       setInvoices(data);
     } catch (err: any) {
       console.error('Failed to load invoices:', err);
@@ -56,16 +120,17 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [addToast]);
+  }, [currentUser, addToast]);
 
   // Initial load and Real-time subscription setup
   useEffect(() => {
+    if (!currentUser) return;
+
     loadData();
 
     // Subscribe to live Postgres changes and local bus updates
     const unsubscribe = supabaseService.subscribeToChanges(() => {
-      // Reload on change
-      supabaseService.fetchClientsAndInvoices().then((updated) => {
+      supabaseService.fetchClientsAndInvoices(currentUser.id).then((updated) => {
         setInvoices(updated);
       });
     });
@@ -73,7 +138,7 @@ export default function App() {
     return () => {
       unsubscribe();
     };
-  }, [loadData]);
+  }, [currentUser, loadData]);
 
   // Compute Dashboard Statistics dynamically
   const stats: DashboardStats = useMemo(() => {
@@ -91,14 +156,13 @@ export default function App() {
         if (inv.currency === 'USD') paidUSD += inv.amount;
         else paidINR += inv.amount;
       } else {
-        // Pending or Escalated
         if (inv.status === 'escalated') {
           escalatedCount++;
         } else {
           pendingCount++;
         }
 
-        // Add to overdue amount if due date is passed or today
+        // Add to overdue amount if past due or due today
         if (inv.days_overdue >= 0) {
           if (inv.currency === 'USD') overdueUSD += inv.amount;
           else overdueINR += inv.amount;
@@ -127,11 +191,13 @@ export default function App() {
     setIsAddModalOpen(true);
   };
 
-  // Handler: Save Invoice (Create or Update in Supabase)
+  // Handler: Save Invoice (Create or Update in Supabase with user_id)
   const handleSaveInvoice = async (input: NewInvoiceInput) => {
+    if (!currentUser) return;
+
     if (editingInvoice) {
       try {
-        const updated = await supabaseService.updateInvoice(editingInvoice.id, input);
+        const updated = await supabaseService.updateInvoice(editingInvoice.id, input, currentUser.id);
         setInvoices((prev) =>
           prev.map((inv) => (inv.id === editingInvoice.id ? updated : inv))
         );
@@ -146,7 +212,7 @@ export default function App() {
       }
     } else {
       try {
-        const created = await supabaseService.insertInvoice(input);
+        const created = await supabaseService.insertInvoice(input, currentUser.id);
         setInvoices((prev) => [created, ...prev]);
         addToast(
           'success',
@@ -248,6 +314,13 @@ export default function App() {
     }
   };
 
+  // Handler: Sign out
+  const handleSignOut = async () => {
+    await supabaseService.signOut();
+    setCurrentUser(null);
+    addToast('info', 'Signed Out', 'You have securely signed out of dueFox.co');
+  };
+
   // Handler: Reset demo data
   const handleResetDemoData = () => {
     supabaseService.resetDemoData();
@@ -262,8 +335,64 @@ export default function App() {
 
   const unpaidCount = invoices.filter((i) => i.status !== 'paid').length;
 
+  // 1. Initial Auth Loading State
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#0F172A] flex flex-col items-center justify-center p-6 text-white">
+        <div className="w-12 h-12 rounded-2xl bg-electric flex items-center justify-center shadow-lg animate-pulse mb-4">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="w-6 h-6 text-white"
+          >
+            <polygon points="12 2 19 8 19 19 5 19 5 8 12 2" fill="currentColor" fillOpacity="0.25" />
+            <path d="M5 8l7 4 7-4" />
+            <path d="M12 12v7" />
+            <path d="M9 5l3 3 3-3" />
+          </svg>
+        </div>
+        <p className="text-sm font-semibold tracking-wide text-slate-300">
+          Loading dueFox engine...
+        </p>
+      </div>
+    );
+  }
+
+  // 2. Unauthenticated View: Render Glassmorphic Login / Sign Up
+  if (!currentUser) {
+    return (
+      <>
+        <AuthView
+          onAuthenticated={(user) => {
+            setCurrentUser(user);
+            addToast('success', `Welcome to dueFox, ${user.name || user.email}!`);
+          }}
+          theme={theme}
+          onToggleTheme={handleToggleTheme}
+          supabaseConfig={supabaseConfig}
+          onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
+        />
+
+        <SupabaseConfigModal
+          isOpen={isSupabaseModalOpen}
+          onClose={() => setIsSupabaseModalOpen(false)}
+          config={supabaseConfig}
+          onConfigUpdated={handleConfigUpdated}
+          onResetDemoData={handleResetDemoData}
+        />
+
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      </>
+    );
+  }
+
+  // 3. Authenticated View: Render Full Modern Dashboard
   return (
-    <div className="min-h-screen bg-neutral-50 text-slate-900 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0F172A] text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* Top Header */}
       <Header
         onOpenAddModal={handleOpenAddModal}
@@ -272,6 +401,10 @@ export default function App() {
         supabaseConfig={supabaseConfig}
         chaseActive={true}
         unpaidCount={unpaidCount}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
+        user={currentUser}
+        onSignOut={handleSignOut}
       />
 
       {/* Main Workspace Canvas */}
@@ -288,28 +421,28 @@ export default function App() {
         {/* Main Section: Invoice Data Table */}
         <section aria-label="Invoice Management Table">
           <div className="space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
-                <h2 className="text-base font-bold text-slate-900 tracking-tight">
+                <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
                   Invoice Accounts & Chase Queue
                 </h2>
-                <p className="text-xs text-slate-500">
-                  Track overdue balances, automate collections, and escalate past-due client accounts.
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Track overdue balances, automate collection cadence, and escalate past-due client accounts.
                 </p>
               </div>
 
               {/* Status explanation indicator */}
-              <div className="hidden sm:flex items-center gap-3 text-xs text-slate-500 font-mono">
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <div className="hidden sm:flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 font-mono">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
                   <span>Paid</span>
                 </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
                   <span>Pending</span>
                 </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-rose-500" />
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#EF4444]" />
                   <span>Escalated (30+ Days)</span>
                 </span>
               </div>
@@ -329,9 +462,9 @@ export default function App() {
         </section>
 
         {/* Quiet Footnote & Database Integration Reference */}
-        <footer className="pt-6 pb-4 border-t border-neutral-200/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
+        <footer className="pt-6 pb-4 border-t border-slate-200 dark:border-[#334155] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-700">dueFox.co</span>
+            <span className="font-semibold text-slate-700 dark:text-slate-300">dueFox.co</span>
             <span aria-hidden="true">·</span>
             <span>Automated Invoice Chasing Engine</span>
             <span aria-hidden="true">·</span>
@@ -342,7 +475,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsSupabaseModalOpen(true)}
-              className="text-slate-600 hover:text-slate-900 font-medium underline underline-offset-2 cursor-pointer"
+              className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white font-medium underline underline-offset-2 cursor-pointer"
             >
               Supabase SQL Schema & Credentials
             </button>
@@ -350,7 +483,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleResetDemoData}
-              className="text-slate-600 hover:text-slate-900 font-medium underline underline-offset-2 cursor-pointer"
+              className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white font-medium underline underline-offset-2 cursor-pointer"
             >
               Reset Data
             </button>

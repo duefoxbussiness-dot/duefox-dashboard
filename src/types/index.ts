@@ -1,8 +1,17 @@
 export type InvoiceStatus = 'pending' | 'escalated' | 'paid';
 export type CurrencyCode = 'USD' | 'INR';
+export type ThemeMode = 'dark' | 'light';
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name?: string;
+  created_at?: string;
+}
 
 export interface Client {
   id: string;
+  user_id?: string;
   name: string;
   email: string;
   phone: string;
@@ -12,6 +21,7 @@ export interface Client {
 
 export interface Invoice {
   id: string;
+  user_id?: string;
   client_id: string;
   invoice_number: string;
   amount: number;

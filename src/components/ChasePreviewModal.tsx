@@ -80,26 +80,26 @@ Hi ${invoice.client.name}, invoice ${invoice.invoice_number} (${formattedAmount}
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
       <div
-        className="relative bg-white w-full max-w-lg rounded-xl border border-neutral-200 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="relative bg-white dark:bg-[#1E293B] w-full max-w-lg rounded-2xl border border-slate-200 dark:border-[#334155] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
         role="dialog"
         aria-modal="true"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 bg-neutral-50/70">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-[#334155] bg-slate-50/80 dark:bg-[#0F172A]/70">
           <div>
-            <h2 className="text-base font-bold text-slate-900">
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">
               Trigger Automated Chase Reminder
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Invoice <span className="font-mono font-medium text-slate-700">{invoice.invoice_number}</span> · Client: {invoice.client.name}
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Invoice <span className="font-mono font-medium text-slate-800 dark:text-slate-200">{invoice.invoice_number}</span> · Client: {invoice.client.name}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1.5 rounded-lg transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -109,23 +109,23 @@ Hi ${invoice.client.name}, invoice ${invoice.invoice_number} (${formattedAmount}
         <div className="p-6 space-y-4">
           {/* Overdue Warning Banner if 30+ days */}
           {isEscalated && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 flex items-center justify-between">
+            <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs text-rose-800 dark:text-rose-300 flex items-center justify-between">
               <span className="font-medium">
                 Account is {invoice.days_overdue} days overdue. Escalation template active.
               </span>
-              <span className="font-mono font-bold text-rose-700">{formattedAmount}</span>
+              <span className="font-mono font-bold text-rose-600 dark:text-rose-400">{formattedAmount}</span>
             </div>
           )}
 
           {/* Channel selector */}
-          <div className="flex items-center gap-2 border-b border-neutral-200 pb-2">
+          <div className="flex items-center gap-2 border-b border-slate-200 dark:border-[#334155] pb-2">
             <button
               type="button"
               onClick={() => setActiveChannel('email')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
                 activeChannel === 'email'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-neutral-100'
+                  ? 'bg-electric text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
               <Mail className="w-3.5 h-3.5" />
@@ -134,10 +134,10 @@ Hi ${invoice.client.name}, invoice ${invoice.invoice_number} (${formattedAmount}
             <button
               type="button"
               onClick={() => setActiveChannel('whatsapp')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
                 activeChannel === 'whatsapp'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-neutral-100'
+                  ? 'bg-electric text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
               <MessageSquare className="w-3.5 h-3.5" />
@@ -149,61 +149,61 @@ Hi ${invoice.client.name}, invoice ${invoice.invoice_number} (${formattedAmount}
           {activeChannel === 'email' ? (
             <div className="space-y-2">
               <div>
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
                   Subject Line:
                 </span>
-                <p className="text-xs font-semibold text-slate-900 bg-neutral-50 p-2 rounded border border-neutral-200 mt-1">
+                <p className="text-xs font-semibold text-slate-900 dark:text-white bg-slate-50 dark:bg-[#0F172A]/70 p-2.5 rounded-xl border border-slate-200 dark:border-[#334155] mt-1">
                   {emailSubject}
                 </p>
               </div>
 
               <div>
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
                   Email Body:
                 </span>
-                <pre className="text-xs text-slate-700 bg-neutral-50 p-3 rounded border border-neutral-200 font-sans whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto mt-1">
+                <pre className="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0F172A]/70 p-3 rounded-xl border border-slate-200 dark:border-[#334155] font-sans whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto mt-1">
                   {emailBody}
                 </pre>
               </div>
             </div>
           ) : (
             <div>
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
                 Instant Message Payload:
               </span>
-              <pre className="text-xs text-slate-700 bg-neutral-50 p-3 rounded border border-neutral-200 font-sans whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto mt-1">
+              <pre className="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0F172A]/70 p-3 rounded-xl border border-slate-200 dark:border-[#334155] font-sans whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto mt-1">
                 {whatsappMessage}
               </pre>
             </div>
           )}
 
           {/* Quick Payment Link Box */}
-          <div className="flex items-center justify-between p-2.5 bg-neutral-100 rounded-lg border border-neutral-200">
-            <span className="text-xs text-slate-600 truncate mr-2">
+          <div className="flex items-center justify-between p-2.5 bg-slate-100 dark:bg-[#0F172A]/70 rounded-xl border border-slate-200 dark:border-[#334155]">
+            <span className="text-xs text-slate-600 dark:text-slate-300 truncate mr-2 font-mono">
               {invoice.payment_link || `https://pay.duefox.co/inv/${invoice.invoice_number}`}
             </span>
             <button
               type="button"
               onClick={handleCopyPaymentLink}
-              className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-800 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors shrink-0 cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-[#334155] rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shrink-0 cursor-pointer shadow-xs"
             >
-              {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+              {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
               <span>{copiedLink ? 'Copied' : 'Copy Link'}</span>
             </button>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="border-t border-neutral-200 px-6 py-3 bg-neutral-50/70 flex items-center justify-between">
-          <span className="text-xs text-slate-500">
-            Current chase count: <strong className="font-mono text-slate-800">{invoice.chase_count}</strong>
+        <div className="border-t border-slate-200 dark:border-[#334155] px-6 py-3 bg-slate-50/80 dark:bg-[#0F172A]/70 flex items-center justify-between">
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            Current chase count: <strong className="font-mono text-slate-800 dark:text-slate-200">{invoice.chase_count}</strong>
           </span>
 
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-neutral-200/70 rounded-lg transition-colors cursor-pointer"
+              className="px-3.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -211,7 +211,7 @@ Hi ${invoice.client.name}, invoice ${invoice.invoice_number} (${formattedAmount}
               type="button"
               onClick={handleSend}
               disabled={sending}
-              className="px-4 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+              className="px-4 py-1.5 text-xs font-semibold text-white bg-electric hover:bg-[#F4511E] active:bg-[#E64A19] rounded-xl transition-colors flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
             >
               <Send className="w-3.5 h-3.5" />
               <span>{sending ? 'Dispatching...' : 'Dispatch Chase Now'}</span>
